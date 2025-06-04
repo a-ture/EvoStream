@@ -173,6 +173,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 /.idea
-/batch_output
-/online_ckpts
-/river_ckpts
+/checkpoints/batch_output
+/checkpoints/online_ckpts
+/checkpoints/river_ckpts
+/src/models/trial_6

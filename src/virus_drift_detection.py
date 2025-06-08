@@ -1,32 +1,32 @@
 #!/usr/bin/env python3
 """
-virus_drift_detection.py - Versione Definitiva per Esame
+virus_drift_detection.py - Final Version for Examination
 
-Pipeline per tracciare l'evoluzione di un virus (SARS-CoV-2) attraverso le sue varianti,
-simulando un realistico scenario di concept drift graduale con un campione di dati più ampio.
+Pipeline to track the evolution of a virus (SARS-CoV-2) through its variants,
+simulating a realistic concept drift scenario with an enlarged data sample.
 
-Scenario Sperimentale:
-- Si analizza un flusso di dati che simula la comparsa progressiva delle varianti di SARS-CoV-2:
+Experimental Scenario:
+- A data stream simulating the progressive appearance of SARS-CoV-2 variants is analyzed:
   1. Wuhan (Baseline) -> 2. Alpha -> 3. Delta -> 4. Omicron
-- Ciascuna variante è rappresentata da 30 sequenze genomiche per un totale di 120.
+- Each variant is represented by 30 genomic sequences, for a total of 120.
 
-Obiettivo:
-- Confrontare modelli batch e online nella loro capacità di rilevare e adattarsi.
+Objective:
+- To compare batch and online models in their ability to detect and adapt.
 
-Metodologie Avanzate:
-- Feature Engineering a multiscala (k-meri multipli) e TF-IDF.
-- SOGLIA ONLINE ROBUSTA basata su quantili dinamici.
-- Calibrazione automatica del livello di quantile su un validation set, ottimizzando per F1-Score.
-- Aggiunta di un ENSEMBLE PESATO basato sulle performance dei singoli modelli.
-- Misurazione della latenza di rilevamento per i modelli online.
-- Aggiunta dell'analisi della curva Precision-Recall e di una heatmap della latenza.
-- Confronto di 7 algoritmi (2 batch, 4 online anomaly, 1 online clustering).
-- Generazione di metriche di performance complete e grafici dettagliati.
+Advanced Methodologies:
+- Multi-scale feature engineering (multiple k-mers) and TF-IDF.
+- ROBUST ONLINE THRESHOLD based on dynamic quantiles.
+- Automatic hyperparameter calibration on a validation set, optimizing for F1-Score.
+- Addition of a WEIGHTED ENSEMBLE based on individual model performance.
+- Measurement of detection latency for online models.
+- Analysis of Precision-Recall curves and a latency heatmap.
+- Comparison of 7 algorithms (2 batch, 4 online anomaly, 1 online clustering).
+- Generation of comprehensive performance metrics and detailed plots.
 
-Prerequisiti:
+Prerequisites:
     pip install biopython numpy scikit-learn matplotlib pandas seaborn scipy
 
-Uso:
+Usage:
     python virus_drift_detection.py
 """
 import os
@@ -51,49 +51,53 @@ import warnings
 
 warnings.filterwarnings('ignore', category=UserWarning)
 
-# === CONFIGURAZIONE ESPERTO (CAMPIONE ALLARGATO) ===
+# === EXPERT CONFIGURATION (LARGE SAMPLE) ===
 VIRUS_VARIANTS = {
     "SARS-CoV-2 (Wuhan)": [
-        "NC_045512.2", "MT291826.1", "MT291827.1", "MT291828.1", "MT263424.1", "MT259270.1", "MT259279.1", "MT263389.1",
-        "MT281529.1", "MT281530.1", "LR757995.1", "LR757996.1", "LR757997.1", "LR757998.1", "LR757999.1", "LR758000.1",
-        "LR758001.1", "LR758002.1", "LR758003.1", "MN908947.3", "MT345842.1", "MT345843.1", "MT345844.1", "MT345845.1",
-        "MT345846.1", "MT345847.1", "MT345848.1", "MT345849.1", "MT345850.1", "MT345851.1"
+        "NC_045512.2", "MT291826.1", "MT291827.1", "MT291828.1", "MT263424.1",
+        "MT259270.1", "MT259279.1", "MT263389.1", "MT281529.1", "MT281530.1",
+        "LR757995.1", "LR757996.1", "LR757997.1", "LR757998.1", "LR757999.1",
+        "LR758000.1", "LR758001.1", "LR758002.1", "LR758003.1", "MN908947.3",
+        "MT345842.1", "MT345843.1", "MT345844.1", "MT345845.1", "MT345846.1",
+        "MT345847.1", "MT345848.1", "MT345849.1", "MT345850.1", "MT345851.1"
     ],
     "SARS-CoV-2 (Alpha)": [
-        "OV360434.1", "OV360435.1", "OV360436.1", "OV360437.1", "OV360438.1", "MW585539.1", "MW598433.1", "MW642251.1",
-        "MW642252.1", "MW642253.1", "MW642254.1", "MW642255.1", "MW642256.1", "MW642257.1", "MW642258.1", "MW642259.1",
-        "MW642260.1", "MW642261.1", "MW642262.1", "MW642263.1", "MZ356499.1", "MZ356500.1", "MZ356501.1", "MZ356502.1",
-        "MZ356503.1", "MZ356504.1", "MZ356505.1", "MZ356506.1", "MZ356507.1", "MZ356508.1"
+        "OV360434.1", "OV360435.1", "OV360436.1", "OV360437.1", "OV360438.1",
+        "MW585539.1", "MW598433.1", "MW642251.1", "MW642252.1", "MW642253.1",
+        "MW642254.1", "MW642255.1", "MW642256.1", "MW642257.1", "MW642258.1",
+        "MW642259.1", "MW642260.1", "MW642261.1", "MW642262.1", "MW642263.1",
+        "MZ356499.1", "MZ356500.1", "MZ356501.1", "MZ356502.1", "MZ356503.1",
+        "MZ356504.1", "MZ356505.1", "MZ356506.1", "MZ356507.1", "MZ356508.1"
     ],
     "SARS-CoV-2 (Delta)": [
-        "OQ829447.1", "OQ829448.1", "OQ829449.1", "OM487265.1", "OK058013.1", "MZ559986.1", "MZ559987.1", "MZ559988.1",
-        "MZ559989.1", "MZ559990.1", "MZ559991.1", "MZ559992.1", "MZ559993.1", "MZ559994.1", "MZ559995.1", "MZ559996.1",
-        "MZ559997.1", "MZ559998.1", "MZ559999.1", "MZ560000.1", "OK092523.1", "OK092524.1", "OK092525.1", "OK092526.1",
-        "OK092527.1", "OK092528.1", "OK092529.1", "OK092530.1", "OK092531.1", "OK092532.1"
+        "OQ829447.1", "OQ829448.1", "OQ829449.1", "OM487265.1", "OK058013.1",
+        "MZ559986.1", "MZ559987.1", "MZ559988.1", "MZ559989.1", "MZ559990.1",
+        "MZ559991.1", "MZ559992.1", "MZ559993.1", "MZ559994.1", "MZ559995.1",
+        "MZ559996.1", "MZ559997.1", "MZ559998.1", "MZ559999.1", "MZ560000.1",
+        "OK092523.1", "OK092524.1", "OK092525.1", "OK092526.1", "OK092527.1",
+        "OK092528.1", "OK092529.1", "OK092530.1", "OK092531.1", "OK092532.1"
     ],
     "SARS-CoV-2 (Omicron)": [
-        "OP011314.1", "OP011315.1", "OP011316.1", "OM287123.1", "ON939337.1", "ON939338.1", "ON939339.1", "ON939340.1",
-        "ON939341.1", "ON939342.1", "ON939343.1", "ON939344.1", "ON939345.1", "ON939346.1", "ON939347.1", "ON939348.1",
-        "ON939349.1", "ON939350.1", "ON939351.1", "ON939352.1", "OP073347.1", "OP073348.1", "OP073349.1", "OP073350.1",
-        "OP073351.1", "OP073352.1", "OP073353.1", "OP073354.1", "OP073355.1", "OP073356.1"
+        "OP011314.1", "OP011315.1", "OP011316.1", "OM287123.1", "ON939337.1",
+        "ON939338.1", "ON939339.1", "ON939340.1", "ON939341.1", "ON939342.1",
+        "ON939343.1", "ON939344.1", "ON939345.1", "ON939346.1", "ON939347.1",
+        "ON939348.1", "ON939349.1", "ON939350.1", "ON939351.1", "ON939352.1",
+        "OP073347.1", "OP073348.1", "OP073349.1", "OP073350.1", "OP073351.1",
+        "OP073352.1", "OP073353.1", "OP073354.1", "OP073355.1", "OP073356.1"
     ]
 }
 
-KMER_SIZES = [3, 4, 5, 6, 7]  # Più ricco
+KMER_SIZES = [4, 5, 6]
 CONTAMINATION = 0.1
-
-WINDOW_SIZES_TO_TUNE = [8, 10, 12, 14, 16, 18, 20]  # tuning più fitto
-QUANTILES_TO_TUNE = [0.80, 0.82, 0.85, 0.88, 0.90, 0.92, 0.95]
-IPCA_COMPONENTS_LIST = [15, 20, 30, 40]
-BATCH_SIZE = 15
-
-# Parametri per il tuning
-
-# Parametri di default
+# Parameters for tuning
+WINDOW_SIZES_TO_TUNE = [10, 15, 20]
+QUANTILES_TO_TUNE = [0.85, 0.90, 0.95, 0.98]
+# Default parameters (will be overwritten by tuning)
 IPCA_COMPONENTS = 30
 N_CLUSTERS = len(VIRUS_VARIANTS)
+BATCH_SIZE = 15
 
-# === PERCORSI ===
+# === PATHS ===
 OUTPUT_DIR = "results_sars_cov_2_final"
 DATA_DIR = os.path.join(OUTPUT_DIR, "data")
 Entrez.email = "a.ture@studenti.unisa.it"
@@ -124,7 +128,8 @@ def clean_sequences(records):
     for rec in records:
         seq = str(rec.seq).upper()
         seq = ''.join(b for b in seq if b in 'ACGT')
-        if seq: clean_seqs.append(seq)
+        if seq:
+            clean_seqs.append(seq)
     return clean_seqs
 
 
@@ -136,7 +141,8 @@ def kmer_counts_matrix(sequences, k):
         if len(seq) < k: continue
         counts = Counter(seq[j:j + k] for j in range(len(seq) - k + 1))
         for kmer, count in counts.items():
-            if kmer in kmer_to_idx: counts_matrix[i, kmer_to_idx[kmer]] = count
+            if kmer in kmer_to_idx:
+                counts_matrix[i, kmer_to_idx[kmer]] = count
     return counts_matrix
 
 
@@ -156,15 +162,18 @@ def run_batch_models(X_train, X_all):
 
 
 def run_online_quantile_threshold(X_stream, score_func, window_size, quantile, **kwargs):
+    """Generic function for online detection with quantile-based thresholding."""
     n_samples = X_stream.shape[0]
     scores = score_func(X_stream, window_size=window_size, **kwargs)
     thresholds = np.zeros(n_samples)
     anomalies = np.zeros(n_samples, dtype=bool)
+
     for i in range(1, n_samples):
         window_scores = scores[max(0, i - window_size):i]
         if len(window_scores) > 1:
             thresholds[i] = np.quantile(window_scores, quantile)
-            if scores[i] > thresholds[i]: anomalies[i] = True
+            if scores[i] > thresholds[i]:
+                anomalies[i] = True
     return anomalies, scores, thresholds
 
 
@@ -179,11 +188,11 @@ def score_func_centroid(X_stream, window_size):
     return distances
 
 
-def score_func_ipca(X_stream, window_size):
+def score_func_ipca(X_stream, window_size, n_components=IPCA_COMPONENTS):
     n_samples = X_stream.shape[0]
     recon_errors = np.zeros(n_samples)
-    ipca = IncrementalPCA(n_components=IPCA_COMPONENTS, batch_size=BATCH_SIZE)
-    initial_train_size = max(IPCA_COMPONENTS + 1, window_size)
+    ipca = IncrementalPCA(n_components=n_components, batch_size=BATCH_SIZE)
+    initial_train_size = max(n_components + 1, window_size)
     if initial_train_size >= n_samples: return recon_errors
     ipca.partial_fit(X_stream[:initial_train_size])
     for i in range(initial_train_size, n_samples):
@@ -198,14 +207,17 @@ def tune_online_hyperparameters(X_val, y_val, window_sizes, quantiles):
     print("\nTuning hyperparameters for online models on validation set (Wuhan vs Alpha)...")
     best_params = {'window_size': 0, 'quantile': 0}
     best_f1 = -1
+
     for ws in window_sizes:
         for q in quantiles:
             preds, _, _ = run_online_quantile_threshold(X_val, score_func_ipca, ws, q)
+            # Optimize for F1-score on the drift (positive) class
             f1 = f1_score(y_val, preds, pos_label=True, zero_division=0)
             if f1 > best_f1:
                 best_f1 = f1
                 best_params['window_size'] = ws
                 best_params['quantile'] = q
+
     print(
         f"Best params found: Window Size = {best_params['window_size']}, Quantile = {best_params['quantile']} (F1-Score: {best_f1:.4f})")
     return best_params['window_size'], best_params['quantile']
@@ -245,13 +257,13 @@ def analyze_and_plot(X_all_tfidf, labels_true, variant_names, batch_preds, onlin
                 plt.scatter(X2d[mask, 0], X2d[mask, 1], label=variant_name, color=cmap(variant_idx), alpha=0.8)
             anomaly_mask = np.array(plot_preds) == -1
             plt.scatter(X2d[anomaly_mask, 0], X2d[anomaly_mask, 1], facecolors='none', edgecolors='k', s=200,
-                        linewidth=2.5, label='Anomalia Rilevata')
+                        linewidth=2.5, label='Anomaly Detected')
         else:
             for cluster_id in range(N_CLUSTERS):
                 mask = preds == cluster_id
-                plt.scatter(X2d[mask, 0], X2d[mask, 1], label=f'Cluster Online {cluster_id}', color=cmap(cluster_id),
+                plt.scatter(X2d[mask, 0], X2d[mask, 1], label=f'Online Cluster {cluster_id}', color=cmap(cluster_id),
                             alpha=0.8)
-        plt.title(f"Visualizzazione PCA - {name}", fontsize=18)
+        plt.title(f"PCA Visualization - {name}", fontsize=18)
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left');
         plt.grid(True, linestyle='--')
         safe_name = name.replace(" ", "_").lower()
@@ -260,33 +272,33 @@ def analyze_and_plot(X_all_tfidf, labels_true, variant_names, batch_preds, onlin
         plt.close()
 
     fig, axes = plt.subplots(len(online_anomaly_preds), 1, figsize=(18, 22), sharex=True)
-    fig.suptitle('Confronto Andamento Temporale Algoritmi Online', fontsize=20)
+    fig.suptitle('Temporal Evolution of Online Algorithms', fontsize=20)
     drift_points = np.cumsum(n_variant_counts)
     for i, (name, data) in enumerate(online_anomaly_preds.items()):
         ax = axes[i]
         ax.plot(data['scores'], label='Score', color='dodgerblue')
-        ax.plot(data['thresholds'], label='Soglia Adattiva (Quantile)', color='darkorange', linestyle='--')
+        ax.plot(data['thresholds'], label='Adaptive Threshold (Quantile)', color='darkorange', linestyle='--')
         anomaly_idx = np.where(data['anomalies'])[0]
         ax.scatter(anomaly_idx, data['scores'][anomaly_idx], marker='o', facecolors='none', edgecolors='red', s=100,
-                   linewidth=2, label='Drift Rilevato')
+                   linewidth=2, label='Drift Detected')
         for p_idx, p in enumerate(drift_points[:-1]): ax.axvline(x=p, color='red', linestyle='-.', linewidth=2,
-                                                                 label=f'Drift {p_idx + 1}' if i == 0 else "")
+                                                                 label=f'Actual Drift {p_idx + 1}' if i == 0 else "")
         ax.set_title(name, fontsize=14)
         ax.legend();
         ax.grid(True, linestyle='--');
-        ax.set_ylabel("Valore Score")
-    axes[-1].set_xlabel("Indice della Sequenza nel Flusso Dati")
+        ax.set_ylabel("Score Value")
+    axes[-1].set_xlabel("Sequence Index in Data Stream")
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.savefig(os.path.join(OUTPUT_DIR, '2_online_temporal_comparison.png'))
     plt.close()
 
     fig, ax = plt.subplots(1, 1, figsize=(18, 7))
-    ax.plot(online_cluster_preds, drawstyle='steps-post', label='Etichetta Cluster Assegnata')
-    ax.plot(labels_true, linestyle='--', color='gray', alpha=0.8, label='Etichetta Reale')
+    ax.plot(online_cluster_preds, drawstyle='steps-post', label='Assigned Cluster Label')
+    ax.plot(labels_true, linestyle='--', color='gray', alpha=0.8, label='Ground Truth Label')
     for p in drift_points[:-1]: ax.axvline(x=p, color='red', linestyle='-.', linewidth=2)
-    ax.set_title('Evoluzione Assegnazione Cluster (Mini-Batch K-Means)', fontsize=16)
-    ax.set_xlabel("Indice Sequenza");
-    ax.set_ylabel("ID Cluster")
+    ax.set_title('Cluster Assignment Evolution (Mini-Batch K-Means)', fontsize=16)
+    ax.set_xlabel("Sequence Index");
+    ax.set_ylabel("Cluster ID")
     ax.set_yticks(range(N_CLUSTERS));
     ax.legend();
     ax.grid(True, linestyle='--')
@@ -303,7 +315,7 @@ def plot_roc_and_pr_curves(online_anomaly_preds, labels_true):
     true_online_anomalies = np.array([l > 0 for l in labels_true])
 
     fig, axes = plt.subplots(1, 2, figsize=(20, 8))
-    fig.suptitle("Curve di Performance per Rilevatori Online", fontsize=16)
+    fig.suptitle("Performance Curves for Online Detectors", fontsize=16)
 
     ax_roc = axes[0]
     for name, data in online_anomaly_preds.items():
@@ -314,7 +326,7 @@ def plot_roc_and_pr_curves(online_anomaly_preds, labels_true):
     ax_roc.plot([0, 1], [0, 1], 'k--', label='Random Guess')
     ax_roc.set_xlabel('False Positive Rate');
     ax_roc.set_ylabel('True Positive Rate')
-    ax_roc.set_title('Curva ROC');
+    ax_roc.set_title('ROC Curve');
     ax_roc.legend();
     ax_roc.grid(True)
 
@@ -325,7 +337,7 @@ def plot_roc_and_pr_curves(online_anomaly_preds, labels_true):
         ax_pr.plot(recall, precision, label=f"{name}")
     ax_pr.set_xlabel('Recall');
     ax_pr.set_ylabel('Precision')
-    ax_pr.set_title('Curva Precision-Recall');
+    ax_pr.set_title('Precision-Recall Curve');
     ax_pr.legend();
     ax_pr.grid(True)
 
@@ -349,9 +361,9 @@ def run_latency_heatmap_analysis(X_all_tfidf, labels_true, n_variant_counts):
     plt.figure(figsize=(12, 10))
     sns.heatmap(latency_matrix, annot=True, fmt='.2f', cmap='viridis_r',
                 xticklabels=QUANTILES_TO_TUNE, yticklabels=WINDOW_SIZES_TO_TUNE)
-    plt.xlabel("Quantile di Soglia");
-    plt.ylabel("Dimensione Finestra (Window Size)")
-    plt.title("Heatmap della Latenza di Rilevamento Media (Incremental PCA)", fontsize=14)
+    plt.xlabel("Threshold Quantile");
+    plt.ylabel("Window Size")
+    plt.title("Average Detection Latency Heatmap (Incremental PCA)", fontsize=14)
     plt.savefig(os.path.join(OUTPUT_DIR, '6_latency_heatmap.png'))
     plt.close()
 
@@ -372,7 +384,7 @@ def print_summary_metrics(labels_true, variant_names, batch_preds, online_anomal
                           best_params, n_variant_counts):
     print("\n" + "=" * 80 + "\n||" + " " * 22 + "DETAILED PERFORMANCE METRICS" + " " * 22 + "||\n" + "=" * 80)
     print(
-        f"\nIperparametri Ottimizzati (da Validation Set): Window Size={best_params['window_size']}, Quantile={best_params['quantile']:.2f}\n")
+        f"\nOptimized Hyperparameters (from Validation Set): Window Size={best_params['window_size']}, Quantile={best_params['quantile']:.2f}\n")
 
     true_anomalies_batch = np.array([-1 if l > 0 else 1 for l in labels_true])
     true_online_anomalies = np.array([l > 0 for l in labels_true])
@@ -381,7 +393,7 @@ def print_summary_metrics(labels_true, variant_names, batch_preds, online_anomal
     for name, preds in batch_preds.items():
         print(f"\n--- {name} ---")
         print(classification_report(true_anomalies_batch, preds,
-                                    target_names=[f'Drift ({N_CLUSTERS - 1} Varianti)', 'Normal (Wuhan)'],
+                                    target_names=[f'Drift ({N_CLUSTERS - 1} Variants)', 'Normal (Wuhan)'],
                                     zero_division=0))
         mcc = matthews_corrcoef(true_anomalies_batch, preds)
         print(f"Matthews Correlation Coefficient (MCC): {mcc:+.4f}")
@@ -392,7 +404,7 @@ def print_summary_metrics(labels_true, variant_names, batch_preds, online_anomal
         preds = data['anomalies']
         scores = data['scores']
         print(classification_report(true_online_anomalies, preds,
-                                    target_names=['Normal (Wuhan)', f'Drift ({N_CLUSTERS - 1} Varianti)'],
+                                    target_names=['Normal (Wuhan)', f'Drift ({N_CLUSTERS - 1} Variants)'],
                                     zero_division=0))
         mcc = matthews_corrcoef(true_online_anomalies, preds)
         fpr, tpr, _ = roc_curve(true_online_anomalies, scores);
@@ -416,8 +428,8 @@ def print_summary_metrics(labels_true, variant_names, batch_preds, online_anomal
     sns.heatmap(cm, annot=True, fmt='d', cmap='viridis', xticklabels=[f'Cluster {i}' for i in range(N_CLUSTERS)],
                 yticklabels=variant_names)
     plt.title('Confusion Matrix - Mini-Batch K-Means');
-    plt.ylabel('Etichetta Reale');
-    plt.xlabel('Etichetta Cluster Assegnata')
+    plt.ylabel('True Label');
+    plt.xlabel('Predicted Cluster')
     plt.tight_layout();
     plt.savefig(os.path.join(OUTPUT_DIR, '4_clustering_confusion_matrix.png'));
     plt.close()
@@ -465,14 +477,12 @@ def main():
     anom_ipca, scores_ipca, thresh_ipca = run_online_quantile_threshold(X_all_tfidf, score_func_ipca, best_ws, best_q)
     online_anomaly_preds['Incremental PCA'] = {'anomalies': anom_ipca, 'scores': scores_ipca, 'thresholds': thresh_ipca}
 
-    # Valuta i modelli base sul validation set per ottenere i pesi dell'ensemble
     auc_centroid = auc(*roc_curve(y_val, score_func_centroid(X_val, best_ws))[:2])
     auc_ipca = auc(*roc_curve(y_val, score_func_ipca(X_val, best_ws))[:2])
     weights = np.array([auc_centroid, auc_ipca])
-    weights /= weights.sum()  # Normalizza i pesi
+    weights /= weights.sum()
     print(f"\nEnsemble weights (Centroid, IPCA): {weights[0]:.2f}, {weights[1]:.2f}")
 
-    # Combina gli score pesati e trova una soglia per l'ensemble
     scaler = MinMaxScaler()
     combined_scores = (scaler.fit_transform(scores_centroid.reshape(-1, 1)) * weights[0] +
                        scaler.fit_transform(scores_ipca.reshape(-1, 1)) * weights[1]).flatten()
@@ -487,7 +497,7 @@ def main():
     analyze_and_plot(X_all_tfidf, labels_true, variant_names, batch_preds, online_anomaly_preds, online_cluster_preds,
                      n_variant_counts, {'window_size': best_ws, 'quantile': best_q})
 
-    print(f"\nOperazione completata! Controlla la cartella '{OUTPUT_DIR}' per i risultati.")
+    print(f"\nOperation completed! Check the '{OUTPUT_DIR}' folder for results.")
 
 
 if __name__ == '__main__':
